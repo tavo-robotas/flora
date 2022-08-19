@@ -42,6 +42,11 @@ float phValue;
 int motorPin = 7;
 //-------------------------------------
 
+//-------------------------------------
+bool   newData;
+String InBytesCmd;
+//-------------------------------------
+
 const byte POTENTIOMETER = 6;
 int reading;
 int value;
@@ -54,16 +59,9 @@ unsigned long laikmatisGLOBAL = 0;
 
 //--------------------------------------
 
-void send_readings_data()
-{
-    
-}
-
 void setup() {
-  
+  Serial.begin (9600);
   dht.begin();
-  //Serial.begin (9600);
- 
   Wire.begin();
   s3.begin(S300I2C_ADDR);
   delay(1000); // 10sec wait.
@@ -111,6 +109,91 @@ void setup() {
   matrix.setCursor(4,28);    // start at top left, with 8 pixel of spacing
   matrix.print("PH =");
   digitalWrite(6, HIGH);
+}
+
+float calculate_hydrogen()
+{
+  for(int i = 0; i < 10; i++)       
+  { 
+    buf[i]=analogRead(SensorPin);
+    delay(10);
+  }
+  for(int i = 0; i < 9; i++)      
+  {
+    for(int j = i + 1; j < 10; j++)
+    {
+      if( buf[i] > buf[j] )
+      {
+        temp   = buf[i];
+        buf[i] = buf[j];
+        buf[j] = temp;
+      }
+    }
+  }
+  avgValue=0;
+  for(int i = 2; i < 8; i++)
+  {
+    avgValue += buf[i];
+  }                     
+  
+  phValue = (float)avgValue * 5.0/ 1024 / 6;
+  phValue = 3.5 * phValue;
+  return phValue;              
+}
+
+float get_humidity()
+{
+  float humidity = dht.readHumidity();
+  return humidity;
+}
+float get_temperature()
+{
+  float temperature = dht.readTemperature();
+  return temperature;
+}
+float get_hydrogen()
+{
+  float hydrogen = calculate_hydrogen();
+  return hydrogen;
+}
+
+int get_dioxide()
+{
+  int dioxide = s3.getCO2ppm();
+  return dioxide;
+}
+
+float get_dissolved_solids()
+{
+                             gravityTds.setTemperature(temperature);
+                             gravityTds.update();
+    float  dissolved_solid = gravityTds.getTdsValue();
+    return dissolved_solid; 
+}
+
+
+void communicate(){
+  if (Serial.available() > 0) {
+    InBytesCmd = Serial.readStringUntil('\n');
+    newData = true;
+
+    if (InBytesCmd == "get humidity"){
+      Serial.print(get_humidity());
+    }
+    if (InBytesCmd == "get temperature"){
+      Serial.print(get_temperature());
+    }
+    if (InBytesCmd == "get hydrogen"){
+      Serial.print(get_hydrogen());
+    }
+    if (InBytesCmd == "get dioxide"){
+      Serial.print(get_dioxide());
+    }  
+    if (InBytesCmd == "get dissolved solids"){
+      Serial.print(get_dissolved_solids());
+    }  
+    
+ }
 }
 
 void loop() {
