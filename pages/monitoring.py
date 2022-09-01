@@ -221,7 +221,7 @@ graphs = [
     [dcc.Graph(id="temperature_graph", figure=px.line(data, x='date_time', y='temperature', title="Temperature"))],
     [dcc.Graph(id="humidity_graph", figure=px.line(data, x='date_time', y='humidity',    title="Humidity"))],
     [dcc.Graph(id="soilmoisture_graph", figure=px.line(data, x='date_time', y='soilmoisture',title="Soil moisture"))],
-    [dcc.Graph(id="C02_graph", figure=px.line(data, x='date_time', y='soilmoisture',title="CO2 level"))]
+    [dcc.Graph(id="C02_graph", figure=px.line(data, x='date_time', y='co2',title="CO2 level"))]
 ]
 
 layout = html.Div(
