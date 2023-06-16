@@ -31,5 +31,9 @@ class serialPort():
 
       def writer(self, payload):
             #print(f'payload from writer: {payload}')
-            self.ser.write(payload)
-            time.sleep(0.05)
+            try:
+                  self.ser.write(payload)
+                  time.sleep(0.05)
+            except ser.SerialException as e:
+                  print(f"Error: Serial communication failed. {str(e)}")
+          

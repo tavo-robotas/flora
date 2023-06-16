@@ -92,16 +92,6 @@ cards = [
     ),
 ]
 
-tabs  = dbc.Tabs(
-    [
-        dbc.Tab(label="data plots", tab_id="data_plots"),
-        dbc.Tab(label="vision", tab_id="camere_feed"),
-        dbc.Tab(label="control", tab_id="control_panel")
-    ],
-    id="data_tabs",
-    active_tab="data_plots",
-)
-
 sidebar = html.Div(
     [
         html.H2("Flora", className="display-4"),
@@ -133,9 +123,7 @@ app.layout = dbc.Container(
         sidebar,
         Header("Greenhouse plant monitoring dashboard", app),
         dbc.Row([dbc.Col(card, width=3) for card in cards]),
-        html.Br(),
-        dbc.Row(dbc.Col(tabs)),
-        html.Div(id="tab-content")
+        
     ],
     fluid=True,
     style={
@@ -148,121 +136,6 @@ app.layout = dbc.Container(
     class_name="w-auto"
 )
 
-controllers = [
-    dbc.CardBody(
-        [  
-            html.H5("Fan", className="card-title"),
-            html.Div([
-                daq.BooleanSwitch(id='fan', on=False, persistence=True),
-                html.Div(id='fan-output')
-            ], className="float-start")
-        ]
-    ),
-    dbc.CardBody(
-        [
-            html.H5("Watering", className="card-title"),
-            html.Div([
-                daq.BooleanSwitch(id='water_pump', on=False, persistence=True),
-                html.Div(id='water_pump-output')
-            ], className="float-start")
-        ]
-    ),
-    dbc.CardBody(
-        [
-            html.H5("Lights", className="card-title"),
-            html.Div([
-                daq.BooleanSwitch(id='lights', on=False, persistence=True),
-                html.Div(id='lights-output')
-            ], className="float-start")
-        ]
-    ),
-    dbc.CardBody(
-        [
-            html.H5("Ventilation", className="card-title"),
-            html.Div([
-                daq.BooleanSwitch(id='ventilation', on=False, persistence=True),
-                html.Div(id='ventilation-output')
-            ], className="float-start")
-        ]
-    ),
-    dbc.CardBody(
-        [
-            html.H5("Portal", className="card-title"),
-            html.Div([
-                daq.BooleanSwitch(id='portal_power', on=False, persistence=True),
-                html.Div(id='portal_power-output')
-            ], className="float-start")
-        ]
-    )    
-]
-
-sections = [
-    html.Div(
-        [
-            html.H4("camera idx:1", className="display-6 fw-bold"),
-            html.Hr(className="my-2"),
-            html.Img(src="/video_feed/1", className="mh-100 w-100 h-auto"),
-            html.P(
-                "View description {plant}, {location}, {channel}"
-            ),
-            html.Div([
-                dbc.Button("Settings", id="open-centered"),
-                dbc.Modal(
-                    [
-                        dbc.ModalHeader(dbc.ModalTitle("Camera idx:1 settings"), close_button=True),
-                        dbc.ModalBody(
-                            html.Div([
-                                daq.Slider(
-                                    max=100,
-                                    size=400,
-                                    id='my-daq-slider-ex-1',
-                                    value=17
-                                ),
-                                html.Div(id='slider-output-1')
-                            ])
-                        ),
-                        dbc.ModalFooter(
-                            dbc.Button(
-                                "Close",
-                                id="close-centered",
-                                className="ms-auto",
-                                n_clicks=0,
-                            )
-                        ),
-                    ],
-                    id="modal-centered",
-                    centered=True,
-                    is_open=False,
-                )
-            ])
-        ],
-        className="h-100 p-5  bg-light rounded-3"
-    ),
-    html.Div(
-        [
-            html.H4("camera idx:2", className="display-6 fw-bold"),
-            html.Hr(className="my-2"),
-            html.Img(src="/video_feed/2", className="mh-100 w-100 h-auto"),
-            html.P(
-                "View description {plant}, {location}, {channel}"
-            ),
-            dbc.Button("Settings", color="primary", className="lead"),
-        ],
-        className="h-100 p-5 bg-light rounded-3"
-    ),
-    html.Div(
-        [
-            html.H4("camera idx:3", className="display-6 fw-bold"),
-            html.Hr(className="my-2"),
-            html.Img(src="/video_feed/3", className="mh-100 w-100 h-auto"),
-            html.P(
-                "View description {plant}, {location}, {channel}"
-            ),
-            dbc.Button("Settings", color="primary", className="lead"),
-        ],
-        className="h-100 p-5 bg-light rounded-3"
-    ),
-    ]
 
 @app.callback(Output("page-content", "children"), [Input("url", "pathname")])
 def render_page_content(pathname):
@@ -271,6 +144,8 @@ def render_page_content(pathname):
     elif pathname == "/analytics":
         return ''
     elif pathname == "/database":
+        return ''
+    elif pathname == "/control":
         return ''
    
     return html.Div(
@@ -281,126 +156,6 @@ def render_page_content(pathname):
         ],
         className="p-3 bg-light rounded-3",
     )
-
-@app.callback(
-    Output("modal-centered", "is_open"),
-    [Input("open-centered", "n_clicks"), Input("close-centered", "n_clicks")],
-    [State("modal-centered", "is_open")],
-)
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
-        return not is_open
-    return is_open
-
-@app.callback(
-    Output('fan-output', 'children'),
-    Input('fan', 'on')
-)
-def update_output(state):
-    if state is True:
-        msg = "fan on"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    
-
-    if state is False:
-        msg = "fan off"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    return ''
-
-@app.callback(
-    Output('water_pump-output', 'children'),
-    Input('water_pump', 'on')
-)
-def update_output(state):
-    if state is True:
-        msg = "water pump on"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    
-
-    if state is False:
-        msg = "water pump off"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    return ''
-
-@app.callback(
-    Output('lights-output', 'children'),
-    Input('lights', 'on')
-)
-def update_output(state):
-    if state is True:
-        msg = "lights on"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    
-
-    if state is False:
-        msg = "lights off"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    return ''
-
-@app.callback(
-    Output('ventilation-output', 'children'),
-    Input('ventilation', 'on')
-)
-def update_output(state):
-    if state is True:
-        msg = "ventilation on"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    
-
-    if state is False:
-        msg = "ventilation off"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    return ''
-
-@app.callback(
-    Output('portal_power-output', 'children'),
-    Input('portal_power', 'on')
-)
-def update_output(state):
-    if state is True:
-        msg = "portal on"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    
-
-    if state is False:
-        msg = "portal off"
-        payload = msg.encode()
-        ser.flush()
-        ser.write(payload)
-    return ''
-
-@app.callback(
-    Output("tab-content", "children"),
-    Input("data_tabs", "active_tab")
-)
-def render_tab_content(active_tab):
-    if active_tab is not None:
-        if active_tab == "data_plots":
-            return[dbc.Row(dbc.Col(graph)) for graph in graphs]
-        elif active_tab == "camere_feed":
-            return dbc.Row([dbc.Col(section, class_name="m-2 md-6") for section in sections], class_name='align-items-md-stretch')
-        elif active_tab == "control_panel":
-            return dbc.Row([dbc.Col(dbc.Card(control), class_name="m-2") for control in controllers])
-
-    return "No tab selected"
 
 @server.route('/video_feed/1')
 def video_feed_1():

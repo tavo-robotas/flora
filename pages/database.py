@@ -5,11 +5,11 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import dash
 
+dash.register_page(__name__, path='/database')
+
 dbclient   = DataBaseClient()
 collection = dbclient.get_all_records()
-
-df    = pd.DataFrame(list(collection.find())).iloc[:, 1:]
-
+df         = pd.DataFrame(list(collection.find())).iloc[:, 1:]
 
 pagination = dbc.Row(
       [

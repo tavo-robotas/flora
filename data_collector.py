@@ -3,50 +3,46 @@ from utils.serializer import serialPort
 import aioschedule as schedule
 from datetime import datetime
 import asyncio
+import serial
 import time
-
-def cmd_rcv(port, msg):
-      #print(f'msg: {msg}')
-      payload = msg.encode()
-      #print(f'payload: {payload}')
-      port.flush()
-      port.writer(payload)
-      val = port.reader()
-      return val
+import math
 
 async def task(message):
-      print(f"async task to recorde data on {message} interval")
-      asyncio.sleep(1)
+      print(f"async task to record data on {message} interval")
+      await asyncio.sleep(1)
       ser = serialPort()
       db  = DataBaseClient()
-      
-      ## TBD:
-      ## stupid hack but it works while i will find out 
-      ## the problem with timeout response form serial port
-      date_time   = datetime.now()
-      temperature = cmd_rcv(ser, "get temperature")
-      temperature = cmd_rcv(ser, "get temperature")
-      humidity    = cmd_rcv(ser, "get humidity")
-      co2         = cmd_rcv(ser, "get dioxide")
-      moisture    = cmd_rcv(ser, "get moisture") 
-      moisture    = cmd_rcv(ser, "get moisture")  
- 
 
       record = {
-            "date_time"    : date_time,
-            "soilmoisture" : int(moisture)/4,
-            "temperature"  : float(temperature),
-            "humidity"     : float(humidity),
-            "co2"          : int(co2)
-
+            "soil_moisture": "get moisture",
+            "temperature": "get temperature",
+            "humidity": "get humidity",
+            "co2": "get dioxide"
       }
+      while True:
+            for key, value in record.items():
+                  
+                  if type(value) is str:
+                        ser.write(value.encode())
+                        time.sleep(0.5)
+                        value = ser.readline().decode("ascii")
+                        print(f'{key}: {value}')
+                        if value != '' and value != 'nan' :
+                              value = float(value)
+                              if not math.isnan(value):
+                                    print(f'inserting {value} of key {key}')
+                                    record[key] = value
 
-      result = db.collection.insert_one(record)
-      print(f'record {result.inserted_id} was inserted')
-      ser.close
 
+                  if all(type(value) is float for value in record.values()):
+                        record['date_time'] = datetime.now()
+                        result = db.collection.insert_one(record)
+                        print(f'record {result.inserted_id} was inserted')
+                        ser.close
+                        return
+                  
 def main():
-      schedule.every().hour.do(task, message='1h')
+      schedule.every().hour.at(':00').do(task, message='10 s')
       loop = asyncio.get_event_loop()
       while True:
             loop.run_until_complete(schedule.run_pending())
@@ -54,3 +50,4 @@ def main():
 
 if __name__ == '__main__':
       main()
+
