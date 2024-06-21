@@ -25,13 +25,22 @@
 #define RELAY_PIN_7 8
 #define RELAY_PIN_8 9
 
+// Initialize sensors
 Adafruit_SGP30 sgp;
 RTC_DS3231 rtc;
 DHT dht(DHTPIN, DHTTYPE);
 GravityTDS gravityTds;
 
-QueueHandle_t screenQueue;
+// Create a queue to hold sensor data
+QueueHandle_t dataQueue;
 
+// File for SD card operations
+File dataFile;
+
+// Flag to send data to serial
+bool sendDataToSerial = false;
+
+// Structure to hold sensor data
 struct SensorData {
   float temperature;
   float humidity;
@@ -43,29 +52,26 @@ struct SensorData {
   DateTime timestamp;
 };
 
+// Task handles for FreeRTOS tasks
 TaskHandle_t dataReadingTaskHandle;
 TaskHandle_t dataWritingTaskHandle;
-QueueHandle_t dataQueue;
 
-File dataFile;
-
+// Function prototypes
 void Task_SerialCommandHandler(void* pvParameter);
 void Task_DataReading(void* pvParameter);
 void Task_DataWriting(void* pvParameter);
-void Task_Send_To_Screen(void *pvParameters);
-
-// Return absolute humidity [mg/m^3] with approximation formula
-uint32_t getAbsoluteHumidity(float temperature, float humidity) {
-  const float absoluteHumidity = 216.7f * ((humidity / 100.0f) * 6.112f * exp((17.62f * temperature) / (243.12f + temperature)) / (273.15f + temperature)); // [g/m^3]
-  const uint32_t absoluteHumidityScaled = static_cast<uint32_t>(1000.0f * absoluteHumidity); // [mg/m^3]
-  return absoluteHumidityScaled;
-}
+void Task_Send_To_Screen(void* pvParameters);
+uint32_t getAbsoluteHumidity(float temperature, float humidity);
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(9600); // Begin Serial1 for communication with NodeMCU
   Wire.begin();
-  dataQueue = xQueueCreate(5, sizeof(SensorData)); // Create queue for sensor data
 
+  // Create queue for sensor data
+  dataQueue = xQueueCreate(5, sizeof(SensorData));
+
+  // Initialize SGP30 sensor
   if (!sgp.begin()) {
     Serial.println("SGP30 not found");
     while (1);
@@ -75,15 +81,16 @@ void setup() {
   Serial.print(sgp.serialnumber[1], HEX);
   Serial.println(sgp.serialnumber[2], HEX);
 
+  // Initialize DHT sensor
   dht.begin();
 
+  // Initialize RTC
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
     while (1);
   }
   if (rtc.lostPower()) {
     Serial.println("RTC lost power, please set the time!");
-    // Adjust to the correct time if RTC lost power
     Serial.println("Use the format YYYY MM DD HH MM SS to set the time.");
     while (!Serial.available()) {
       // Wait for user input
@@ -98,12 +105,14 @@ void setup() {
     Serial.println("RTC time set.");
   }
 
+  // Initialize GravityTDS sensor
   gravityTds.setPin(A1);
   gravityTds.setAref(5.0);
   gravityTds.setAdcRange(1024);
   gravityTds.begin();
 
-  pinMode(MOISTURE_PIN, OUTPUT);  // Set the moisture control pin as output
+  // Initialize relay pins
+  pinMode(MOISTURE_PIN, OUTPUT);
   pinMode(RELAY_PIN_1, OUTPUT);
   pinMode(RELAY_PIN_2, OUTPUT);
   pinMode(RELAY_PIN_3, OUTPUT);
@@ -117,31 +126,43 @@ void setup() {
   readRelayStates();
 
   // Initialize the SD card
-  Serial.print("Initializing SD card...");
   if (!SD.begin(SD_CS_PIN)) {
-    Serial.println("initialization failed!");
+    Serial.println("SD card initialization failed!");
     while (1);
   }
-  Serial.println("initialization done.");
 
-  xTaskCreate(Task_Send_To_Screen, "SenderTask", 128, NULL, 2, NULL);
+  // Test SD card by creating a file
+  dataFile = SD.open("test.txt", FILE_WRITE);
+  if (dataFile) {
+    dataFile.println("SD card initialization successful.");
+    dataFile.close();
+  } else {
+    Serial.println("Error creating test file on SD card.");
+  }
+
+  // Create FreeRTOS tasks
+  xTaskCreate(Task_Send_To_Screen, "SenderTask", 128, NULL, 5, NULL);
   xTaskCreate(Task_DataReading, "Data Reading", 1000, NULL, 3, &dataReadingTaskHandle);
-  xTaskCreate(Task_DataWriting, "Data Writing", 1000, NULL, 1, &dataWritingTaskHandle);
+  xTaskCreate(Task_DataWriting, "Data Writing", 1500, NULL, 4, &dataWritingTaskHandle);
   xTaskCreate(Task_SerialCommandHandler, "SerialCommandHandler", 2048, NULL, 1, NULL);
-
-  screenQueue = xQueueCreate(5, sizeof(float)); // Change the size if needed
 }
-
 
 void loop() {
   // Nothing to be done here because we're using FreeRTOS tasks
+}
+
+// Function to calculate absolute humidity
+uint32_t getAbsoluteHumidity(float temperature, float humidity) {
+  const float absoluteHumidity = 216.7f * ((humidity / 100.0f) * 6.112f * exp((17.62f * temperature) / (243.12f + temperature)) / (273.15f + temperature)); // [g/m^3]
+  const uint32_t absoluteHumidityScaled = static_cast<uint32_t>(1000.0f * absoluteHumidity); // [mg/m^3]
+  return absoluteHumidityScaled;
 }
 
 void Task_DataReading(void* pvParameter) {
   while (1) {
     SensorData sensorData;
 
-    // DHT
+    // DHT sensor readings
     sensorData.temperature = dht.readTemperature();
     sensorData.humidity = dht.readHumidity();
 
@@ -155,7 +176,7 @@ void Task_DataReading(void* pvParameter) {
     uint32_t absoluteHumidity = getAbsoluteHumidity(sensorData.temperature, sensorData.humidity);
     sgp.setHumidity(absoluteHumidity);
 
-    // SGP30
+    // SGP30 sensor readings
     if (!sgp.IAQmeasure()) {
       Serial.println("Failed to read from SGP30 sensor");
       vTaskDelay(500 / portTICK_PERIOD_MS); // Wait before trying again
@@ -169,14 +190,14 @@ void Task_DataReading(void* pvParameter) {
       Serial.println("Raw Measurement failed");
     }
 
-    // Moisture
+    // Moisture sensor readings
     digitalWrite(MOISTURE_PIN, HIGH);  // Turn on the moisture sensor
     delay(10);
     int sensor_analog = analogRead(A2);
     digitalWrite(MOISTURE_PIN, LOW);   // Turn off the moisture sensor
     sensorData.moisture = 100.0 - ((float)sensor_analog / 1023.0) * 100.0;
 
-    // pH
+    // pH sensor readings
     int buf[10], temp;
     unsigned long int avgValue = 0;
     for (int i = 0; i < 10; i++) {
@@ -199,34 +220,38 @@ void Task_DataReading(void* pvParameter) {
     phValue = 3.5 * phValue;
     sensorData.pH = phValue;
 
-    // TDS
+    // TDS sensor readings
     gravityTds.setTemperature(sensorData.temperature);
     gravityTds.update();
     sensorData.tdsValue = gravityTds.getTdsValue();
 
-    // RTC
+    // RTC timestamp
     sensorData.timestamp = rtc.now();
 
     // Send sensor data to the queue
-    xQueueSend(dataQueue, &sensorData, portMAX_DELAY);
+    if (xQueueSend(dataQueue, &sensorData, portMAX_DELAY) != pdPASS) {
+      Serial.println("Failed to send data to queue.");
+    }
 
-    // Print the sensor data to the serial monitor
-    Serial.print(sensorData.timestamp.unixtime());
-    Serial.print(",");
-    Serial.print(sensorData.temperature);
-    Serial.print(",");
-    Serial.print(sensorData.humidity);
-    Serial.print(",");
-    Serial.print(sensorData.moisture);
-    Serial.print(",");
-    Serial.print(sensorData.pH);
-    Serial.print(",");
-    Serial.print(sensorData.tdsValue);
-    Serial.print(",");
-    Serial.print(sensorData.co2);
-    Serial.print(",");
-    Serial.print(sensorData.tvoc);
-    Serial.println(",");
+    // Print the sensor data to the serial monitor if required
+    if (sendDataToSerial) {
+      Serial.print(sensorData.timestamp.unixtime());
+      Serial.print(",");
+      Serial.print(sensorData.temperature);
+      Serial.print(",");
+      Serial.print(sensorData.humidity);
+      Serial.print(",");
+      Serial.print(sensorData.moisture);
+      Serial.print(",");
+      Serial.print(sensorData.pH);
+      Serial.print(",");
+      Serial.print(sensorData.tdsValue);
+      Serial.print(",");
+      Serial.print(sensorData.co2);
+      Serial.print(",");
+      Serial.print(sensorData.tvoc);
+      Serial.println();
+    }
 
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
@@ -236,6 +261,7 @@ void Task_DataWriting(void* pvParameter) {
   while (1) {
     SensorData sensorData;
 
+    // Receive data from the queue
     if (xQueueReceive(dataQueue, &sensorData, portMAX_DELAY) == pdTRUE) {
       // Open data file for appending
       dataFile = SD.open("data.txt", FILE_WRITE);
@@ -263,11 +289,11 @@ void Task_DataWriting(void* pvParameter) {
         Serial.println("Error opening data file!");
       }
     }
-    vTaskDelay(10 / portTICK_PERIOD_MS); // Non-blocking delay
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // Non-blocking delay
   }
 }
 
-void Task_Send_To_Screen(void* pvParameter) {
+void Task_Send_To_Screen(void* pvParameters) {
   while (1) {
     SensorData sensorData;
     if (xQueueReceive(dataQueue, &sensorData, portMAX_DELAY) == pdTRUE) {
@@ -359,7 +385,96 @@ void processCommand(char* command) {
       Serial.print(relayNum);
       Serial.println(" turned ON");
     }
+  } else if (strcmp(command, "SEND DATA ON") == 0) {
+    sendDataToSerial = true;
+    Serial.println("Data sending to serial enabled");
+  } else if (strcmp(command, "SEND DATA OFF") == 0) {
+    sendDataToSerial = false;
+    Serial.println("Data sending to serial disabled");
+  } else if (strncmp(command, "DATA ", 5) == 0) {
+    char* params = command + 5;
+    char* first = strtok(params, " ");
+    char* second = strtok(NULL, " ");
+    if (first && second) {
+      long startTime = atol(first);
+      long endTime = atol(second);
+      readDataInRange(startTime, endTime);
+    } else if (strcmp(first, "ALL") == 0) {
+      plotAllData();
+    } else if (strcmp(first, "FLUSH") == 0) {
+      flushData();
+    } else {
+      Serial.println("Invalid command format. Use DATA <start> <end>, DATA ALL, or DATA FLUSH");
+    }
+  } else if (strncmp(command, "PWM ", 4) == 0) {
+    Serial.println("Received PWM command:");
+    Serial.println(command);
+    Serial1.println(command); // Forward PWM commands to NodeMCU
+    Serial.println("PWM command forwarded to NodeMCU");
   } else {
     Serial.println("Invalid command");
   }
+}
+
+void plotAllData() {
+  File dataFile = SD.open("data.txt", FILE_READ);
+  if (!dataFile) {
+    Serial.println("Error opening data file!");
+    return;
+  }
+
+  while (dataFile.available()) {
+    String line = dataFile.readStringUntil('\n');
+    Serial.println(line);
+  }
+
+  dataFile.close();
+}
+
+void flushData() {
+  if (SD.exists("data.txt")) {
+    SD.remove("data.txt");
+  }
+
+  dataFile = SD.open("data.txt", FILE_WRITE);
+  if (!dataFile) {
+    Serial.println("Error creating data file after flushing!");
+    return;
+  }
+
+  dataFile.close();
+  Serial.println("All data flushed from data.txt");
+}
+
+void readDataInRange(long startTime, long endTime) {
+  File dataFile = SD.open("data.txt", FILE_READ);
+  if (!dataFile) {
+    Serial.println("Error opening data file!");
+    return;
+  }
+
+  // Temporary storage for data outside the specified range
+  String tempData = "";
+
+  while (dataFile.available()) {
+    String line = dataFile.readStringUntil('\n');
+    long timestamp = line.substring(0, line.indexOf(',')).toInt();
+    if (timestamp >= startTime && timestamp <= endTime) {
+      Serial.println(line); // Send the line through serial
+    } else {
+      tempData += line + "\n"; // Store lines outside the range
+    }
+  }
+
+  dataFile.close();
+
+  // Reopen the file for writing to clear and update it
+  dataFile = SD.open("data.txt", FILE_WRITE);
+  if (!dataFile) {
+    Serial.println("Error opening data file for writing!");
+    return;
+  }
+
+  dataFile.print(tempData); // Write back the data outside the specified range
+  dataFile.close();
 }
